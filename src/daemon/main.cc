@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <signal.h>
 #include <time.h>
 
 #include "gattlib.h"
@@ -18,6 +19,15 @@ static char *_managedDeviceAddress[MAX_MANAGED_DEVICES];
 static bool _managedDeviceDiscovered[MAX_MANAGED_DEVICES];
 static gatt_connection_t *_managedDeviceConnection[MAX_MANAGED_DEVICES];
 
+static bool _shutdown;
+
+
+
+static void handleSignal(int signal)
+{
+	_shutdown = true;
+	printf("Shutting down due to %s signal.\n", strsignal(signal));
+}
 
 
 static void deviceDiscoveredCallback(void *adapter, const char *address, const char *name, void *userData)
@@ -141,6 +151,20 @@ void connectDevices()
                 else
                         fprintf(stderr, "Could not connect to newly discovered device %s.\n", _managedDeviceAddress[i]);
         }
+}
+
+
+void disconnectDevices()
+{
+	for (int i = 0; i < _managedDevicesCount; i++)
+	{
+		if (_managedDeviceConnection[i])
+		{
+			printf("Disconnecting device %s\n", _managedDeviceAddress[i]);
+                        gattlib_disconnect(_managedDeviceConnection[i]);
+                        _managedDeviceConnection[i] = nullptr;
+		}
+	}
 }
 
 
@@ -274,18 +298,38 @@ int main(int argc, char **argv)
         _managedDevicesCount = 0;
         updateManagedDevicesList();
 
+	// set up signal handler
+	struct sigaction action;
+	action.sa_handler = handleSignal;
+	sigemptyset(&action.sa_mask);
+	action.sa_flags = 0;
+	sigaction(SIGINT, &action, nullptr);
+	sigaction(SIGTERM, &action, nullptr);
+	sigaction(SIGHUP, &action, nullptr);
+
         // enter the daemon's main loop
-        while (true)
+	_shutdown = false;
+        while (!_shutdown)
         {
                 // find and connect devices
                 connectDevices();
+		if (_shutdown)
+			break;
 
                 // set the devices' current time
                 setCurrentTime();
 
                 // sleep for a while
-                sleep(10);
+		for (int i = 0; i < 10; i++)
+		{
+			if (_shutdown)
+				break;
+	                sleep(1);
+		}
         }
+
+	// clean up
+	disconnectDevices();
 
         // done
         printf("\nDone.\n");
