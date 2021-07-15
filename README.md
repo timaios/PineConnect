@@ -46,6 +46,6 @@ make
 
 ```
 cd build/daemon
-LD_LIBRARY_PATH=../../lib/gattlib/build/dbus ./pc-daemon
+LD_LIBRARY_PATH=../../lib/gattlib/build/dbus ./pineconnectd
 ```
 
