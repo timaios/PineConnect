@@ -7,7 +7,8 @@ CXXFLAGS=-g -Wall -Wpedantic
 
 .PHONY: all
 
-all: build/daemon/pineconnectd
+all: \
+	build/daemon/pineconnectd
 
 
 
@@ -21,9 +22,13 @@ build/lib/Logger.o: src/lib/logger/Logger.h src/lib/logger/Logger.cc
 
 # PineConnect daemon
 
-build/daemon/pineconnectd: build/daemon/main.o build/lib/Logger.o
+DAEMON_OBJS = \
+	build/daemon/main.o \
+	build/lib/Logger.o
+
+build/daemon/pineconnectd: $(DAEMON_OBJS)
 	mkdir -p build/daemon
-	$(CXX) -Llib/gattlib/build/dbus -o build/daemon/pineconnectd build/daemon/main.o build/lib/Logger.o -lgattlib
+	$(CXX) -Llib/gattlib/build/dbus -o build/daemon/pineconnectd $(DAEMON_OBJS) -lgattlib
 
 build/daemon/main.o: src/daemon/main.cc src/lib/logger/Logger.h
 	mkdir -p build/daemon
