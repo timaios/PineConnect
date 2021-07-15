@@ -6,10 +6,14 @@ Companion daemon and app for the PineTime watch
 ### Install Dependencies
 
 Debian and Ubuntu:
-`sudo apt-get install build-essential cmake git libbluetooth-dev libreadline-dev`
+```
+sudo apt-get install build-essential cmake git libbluetooth-dev libreadline-dev`
+```
 
 Arch:
-`sudo pacman -S git cmake make pkgconfig`
+```
+sudo pacman -S git cmake make pkgconfig`
+```
 
 ### Clone the Repository
 
@@ -20,7 +24,7 @@ cd PineConnect
 git submodule update --init
 ```
 
-### Build gattlib Submodule
+### Build [gattlib](https://github.com/labapart/gattlib) Submodule
 
 ```
 cd lib/gattlib
@@ -31,18 +35,17 @@ make
 cd ../../..
 ```
 
-### Build the PineConnect Daemon
+### Build PineConnect
 
 ```
-mkdir build
-g++ -g -Wall -Wpedantic -Ilib/gattlib/include -Llib/gattlib/build/dbus -o build/daemon src/daemon/main.cc -lgattlib
+make clean
+make
 ```
 
-### Run the Daemon Process
+### Test-run the Daemon Process
 
 ```
-cd build
-export LD_LIBRARY_PATH=$(pwd)/../lib/gattlib/build/dbus
-./daemon
+cd build/daemon
+LD_LIBRARY_PATH=../../lib/gattlib/build/dbus ./pc-daemon
 ```
 
