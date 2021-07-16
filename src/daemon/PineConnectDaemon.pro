@@ -8,8 +8,12 @@ QMAKE_LFLAGS += -pg
 
 LIBS = -L../lib/gattlib/build/dbus -lgattlib
 
-INCLUDEPATH += ../lib/gattlib/include
+INCLUDEPATH += ../lib/gattlib/include ../lib/logger
 
 
 SOURCES += \
+        ../lib/logger/Logger.cc \
         main.cc
+
+HEADERS += \
+        ../lib/logger/Logger.h

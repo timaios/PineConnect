@@ -4,6 +4,7 @@
 #include <signal.h>
 #include <time.h>
 
+#include "Logger.h"
 #include "gattlib.h"
 
 
@@ -25,30 +26,36 @@ static bool _shutdown;
 
 static void handleSignal(int signal)
 {
-	_shutdown = true;
-	printf("Shutting down due to %s signal.\n", strsignal(signal));
+        _shutdown = true;
+        LOG_INFO("Will shut down due to %s signal.", strsignal(signal));
 }
 
 
 static void deviceDiscoveredCallback(void *adapter, const char *address, const char *name, void *userData)
 {
         (void)adapter;
-        (void)name;
         (void)userData;
 
-        printf("Discovered device %s", address);
-        if (name && (strlen(name) > 0))
-                printf(" (%s)", name);
+        // check if this is a managed device
+        bool isManaged = false;
         for (int i = 0; i < _managedDevicesCount; i++)
         {
                 if (strcasecmp(address, _managedDeviceAddress[i]) == 0)
                 {
                         _managedDeviceDiscovered[i] = true;
-                        printf(" --> managed device");
+                        isManaged = true;
                         break;
                 }
         }
-        printf("\n");
+
+        // log that event
+        char logMessage[256];
+        snprintf(logMessage, 32, "%s", address);
+        if (name && (strlen(name) > 0))
+                snprintf(logMessage + strlen(logMessage), 128, " (%s)", name);
+        if (isManaged)
+                strcat(logMessage, "  -->  managed device");
+        LOG_VERBOSE("    Discovered device: %s", logMessage);
 }
 
 
@@ -61,7 +68,7 @@ static void deviceDisconnectedCallback(void *userData)
                 {
                         _managedDeviceDiscovered[i] = false;
                         _managedDeviceConnection[i] = nullptr;
-                        printf("Device %s disconnected.\n", _managedDeviceAddress[i]);
+                        LOG_INFO("Device %s disconnected.", _managedDeviceAddress[i]);
                         break;
                 }
         }
@@ -103,7 +110,7 @@ void connectDevices()
         }
         if (allConnected)
         {
-                printf("All managed devices are connected, skipping scan.\n");
+                LOG_VERBOSE("All managed devices are connected, skipping scan.");
                 return;
         }
 
@@ -113,22 +120,22 @@ void connectDevices()
                         _managedDeviceDiscovered[i] = false;
 
         // scan for BLE devices
-        printf("Starting device scan...\n");
+        LOG_VERBOSE("Starting device scan...");
         void *adapter = nullptr;
         if (gattlib_adapter_open(nullptr, &adapter) != 0)
         {
-                fprintf(stderr, "Could not open default bluetooth adapter.\n");
+                LOG_ERROR("Could not open default bluetooth adapter.");
                 return;
         }
         if (gattlib_adapter_scan_enable(adapter, deviceDiscoveredCallback, BLE_SCAN_TIMEOUT, nullptr) != 0)
         {
-                fprintf(stderr, "Could not start scanning for BLE devices.\n");
+                LOG_ERROR("Could not start scanning for BLE devices.");
                 gattlib_adapter_close(adapter);
                 return;
         }
         gattlib_adapter_scan_disable(adapter);
         gattlib_adapter_close(adapter);
-        printf("Device scan completed.\n");
+        LOG_VERBOSE("Device scan completed.");
 
         // try to connect newly discovered devices
         for (int i = 0; i < _managedDevicesCount; i++)
@@ -138,7 +145,7 @@ void connectDevices()
                         continue;
 
                 // try to connect to the device
-                printf("Connecting to device %s...\n", _managedDeviceAddress[i]);
+                LOG_INFO("Connecting to device %s...", _managedDeviceAddress[i]);
                 _managedDeviceConnection[i] = gattlib_connect(nullptr, _managedDeviceAddress[i], GATTLIB_CONNECTION_OPTIONS_LEGACY_DEFAULT);
                 if (_managedDeviceConnection[i])
                 {
@@ -146,25 +153,26 @@ void connectDevices()
                         gattlib_register_on_disconnect(_managedDeviceConnection[i],
                                                        deviceDisconnectedCallback,
                                                        reinterpret_cast<void *>(_managedDeviceAddress[i]));
-                        printf("Connected to device %s.\n", _managedDeviceAddress[i]);
+                        LOG_INFO("Connected to device %s.", _managedDeviceAddress[i]);
                 }
                 else
-                        fprintf(stderr, "Could not connect to newly discovered device %s.\n", _managedDeviceAddress[i]);
+                        LOG_WARNING("Could not connect to newly discovered device %s.", _managedDeviceAddress[i]);
         }
 }
 
 
 void disconnectDevices()
 {
-	for (int i = 0; i < _managedDevicesCount; i++)
-	{
-		if (_managedDeviceConnection[i])
-		{
-			printf("Disconnecting device %s\n", _managedDeviceAddress[i]);
+        for (int i = 0; i < _managedDevicesCount; i++)
+        {
+                if (_managedDeviceConnection[i])
+                {
+                        LOG_INFO("Disconnecting device %s...", _managedDeviceAddress[i]);
                         gattlib_disconnect(_managedDeviceConnection[i]);
                         _managedDeviceConnection[i] = nullptr;
-		}
-	}
+                        LOG_INFO("Disconnected device %s.", _managedDeviceAddress[i]);
+                }
+        }
 }
 
 
@@ -186,15 +194,15 @@ void setCurrentTime()
                 if (result != GATTLIB_SUCCESS)
                 {
                         if (result == GATTLIB_NOT_FOUND)
-                                fprintf(stderr, "Could not find GATT characteristic for CTS on that device.\n");
+                                LOG_WARNING("Could not find GATT characteristic for CTS on that device.");
                         else
-                                fprintf(stderr, "Error while reading GATT characteristic for CTS.\n");
+                                LOG_ERROR("Error while reading GATT characteristic for CTS.");
                         //TODO: check if the method failed on the first call
                         // device seems to have disconnected
                         gattlib_disconnect(_managedDeviceConnection[i]);
                         _managedDeviceConnection[i] = nullptr;
                         _managedDeviceDiscovered[i] = false;
-                        printf("Device %s seems to have disconnected.\n", _managedDeviceAddress[i]);
+                        LOG_INFO("Device %s has disconnected.", _managedDeviceAddress[i]);
                         continue;
                 }
 
@@ -206,10 +214,7 @@ void setCurrentTime()
                 int devMinute = 0;
                 int devSecond = 0;
                 if (bufferLength < 7)
-                {
-                        fprintf(stderr, "Received too few bytes.\n");
-                        printf("Unknown time on device %s", _managedDeviceAddress[i]);
-                }
+                        LOG_WARNING("Received too few bytes (only %d); unknown time on device %s.", bufferLength, _managedDeviceAddress[i]);
                 else
                 {
                         devYear = static_cast<int>(buffer[0]) + (static_cast<int>(buffer[1]) << 8);
@@ -218,14 +223,14 @@ void setCurrentTime()
                         devHour = static_cast<int>(buffer[4]);
                         devMinute = static_cast<int>(buffer[5]);
                         devSecond = static_cast<int>(buffer[6]);
-                        printf("Current time on device %s: %04d-%02d-%02d %02d:%02d:%02d",
-                                        _managedDeviceAddress[i],
-                                        devYear,
-                                        devMonth,
-                                        devDay,
-                                        devHour,
-                                        devMinute,
-                                        devSecond);
+                        LOG_VERBOSE("Current time on device %s: %04d-%02d-%02d %02d:%02d:%02d",
+                                    _managedDeviceAddress[i],
+                                    devYear,
+                                    devMonth,
+                                    devDay,
+                                    devHour,
+                                    devMinute,
+                                    devSecond);
                 }
                 free(buffer);
                 double devTimestamp = static_cast<double>(devYear) * (60.0 * 60.0 * 24.0 * 31.0 * 12.0)
@@ -266,25 +271,29 @@ void setCurrentTime()
                         delete[] buffer;
                         if (result == GATTLIB_SUCCESS)
                         {
-                                printf(", updated to %04d-%02d-%02d %02d:%02d:%02d.\n",
-                                                timeInfo->tm_year + 1900,
-                                                timeInfo->tm_mon + 1,
-                                                timeInfo->tm_mday,
-                                                timeInfo->tm_hour,
-                                                timeInfo->tm_min,
-                                                timeInfo->tm_sec);
+                                LOG_INFO("Updated time on device %s to %04d-%02d-%02d %02d:%02d:%02d.",
+                                         _managedDeviceAddress[i],
+                                         timeInfo->tm_year + 1900,
+                                         timeInfo->tm_mon + 1,
+                                         timeInfo->tm_mday,
+                                         timeInfo->tm_hour,
+                                         timeInfo->tm_min,
+                                         timeInfo->tm_sec);
                         }
                         else
                         {
-                                printf(", update FAILED.\n");
                                 if (result == GATTLIB_NOT_FOUND)
-                                        fprintf(stderr, "Could not find GATT characteristic for CTS on that device.\n");
+                                {
+                                        LOG_WARNING("Could not update time on device %s: Could not find GATT characteristic for CTS on that device.",
+                                                    _managedDeviceAddress[i]);
+                                }
                                 else
-                                        fprintf(stderr, "Error while writing GATT characteristic for CTS.\n");
+                                {
+                                        LOG_ERROR("Could not update time on device %s: Error while writing GATT characteristic for CTS.",
+                                                  _managedDeviceAddress[i]);
+                                }
                         }
                 }
-                else
-                        printf(", no update required.\n");
         }
 }
 
@@ -295,44 +304,49 @@ int main(int argc, char **argv)
         (void)argv;
 
         // initialization
+        LOG_INFO("Starting.");
         _managedDevicesCount = 0;
+
         updateManagedDevicesList();
 
-	// set up signal handler
-	struct sigaction action;
-	action.sa_handler = handleSignal;
-	sigemptyset(&action.sa_mask);
-	action.sa_flags = 0;
-	sigaction(SIGINT, &action, nullptr);
-	sigaction(SIGTERM, &action, nullptr);
-	sigaction(SIGHUP, &action, nullptr);
+        // set up signal handler
+        LOG_DEBUG("Setting up OS signal handler.");
+        struct sigaction action;
+        action.sa_handler = handleSignal;
+        sigemptyset(&action.sa_mask);
+        action.sa_flags = 0;
+        sigaction(SIGINT, &action, nullptr);
+        sigaction(SIGTERM, &action, nullptr);
+        sigaction(SIGHUP, &action, nullptr);
 
         // enter the daemon's main loop
-	_shutdown = false;
+        LOG_DEBUG("Entering main loop.");
+        _shutdown = false;
         while (!_shutdown)
         {
                 // find and connect devices
                 connectDevices();
-		if (_shutdown)
-			break;
+                if (_shutdown)
+                        break;
 
                 // set the devices' current time
                 setCurrentTime();
 
                 // sleep for a while
-		for (int i = 0; i < 10; i++)
-		{
-			if (_shutdown)
-				break;
-	                sleep(1);
-		}
+                for (int i = 0; i < 10; i++)
+                {
+                        if (_shutdown)
+                                break;
+                        sleep(1);
+                }
         }
+        LOG_DEBUG("Exited main loop.");
 
-	// clean up
-	disconnectDevices();
+        // clean up
+        disconnectDevices();
 
         // done
-        printf("\nDone.\n");
+        LOG_INFO("Exiting.");
         return 0;
 }
 
