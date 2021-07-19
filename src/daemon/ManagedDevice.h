@@ -29,7 +29,8 @@
 #include <mutex>
 
 #include "Device.h"
-#include "gattlib.h"
+
+class BluezAdapter;
 
 
 
@@ -37,32 +38,21 @@ class ManagedDevice : public Device
 {
 public:
 
-        ManagedDevice(const char *address);
+        ManagedDevice(BluezAdapter *bluezAdapter, const char *address);
+        ~ManagedDevice() override;
 
         void setName(const char *value);
 
-        bool discovered() const { return _discovered; }
-        void setDiscovered(bool value) { _discovered = value; }
-
         bool isConnected();
         bool connect();
-        void disconnect();
+        bool disconnect();
 
-        bool readCharacteristic(const char *charGuid, uint8_t **buffer, size_t *bufferSize, bool disconnectOnFailure = true);
-        bool writeCharacteristic(const char *charGuid, uint8_t *buffer, size_t length, bool disconnectOnFailure = true);
-
-protected:
-
-        bool _discovered;
-
-        virtual void handleDisconnect();
+        int readCharacteristic(const char *charGuid, uint8_t *buffer, int bufferSize);
+        bool writeCharacteristic(const char *charGuid, uint8_t *buffer, int length);
 
 private:
 
-        std::mutex _deviceMutex;
-        gatt_connection_t *_connection;
-
-        static void deviceDisconnectedCallback(void *userData);
+        BluezAdapter *_bluezAdapter;
 };
 
 #endif // MANAGEDDEVICE_H

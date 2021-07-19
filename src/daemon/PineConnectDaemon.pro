@@ -6,13 +6,18 @@ QMAKE_CXXFLAGS += -pg -Wpedantic
 QMAKE_LFLAGS += -pg
 
 
-LIBS = -L../lib/gattlib/build/dbus -lgattlib -lpthread
+unix {
+        CONFIG += link_pkgconfig
+        PKGCONFIG += dbus-1
+}
 
-INCLUDEPATH += ../lib/gattlib/include ../lib/logger
+
+INCLUDEPATH += ../lib/logger ../lib/bluez
 
 
 SOURCES += \
         ../lib/logger/Logger.cc \
+        ../lib/bluez/BluezAdapter.cc \
         CurrentTimeService.cc \
         Device.cc \
         DeviceManager.cc \
@@ -22,6 +27,7 @@ SOURCES += \
 
 HEADERS += \
         ../lib/logger/Logger.h \
+        ../lib/bluez/BluezAdapter.h \
         CurrentTimeService.h \
         Device.h \
         DeviceManager.h \

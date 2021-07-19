@@ -34,6 +34,8 @@
 #define UUID_SERVICE_CURRENT_TIME          "00001805-0000-1000-8000-00805f9b34fb"
 #define UUID_CHARACTERISTIC_CURRENT_TIME   "00002a2b-0000-1000-8000-00805f9b34fb"
 
+#define MAX_BUFFER_SIZE   32
+
 
 
 CurrentTimeService::CurrentTimeService()
@@ -44,26 +46,16 @@ CurrentTimeService::CurrentTimeService()
 bool CurrentTimeService::run(ManagedDevice *device)
 {
         // get the device's current time
-        uint8_t *buffer = nullptr;
-        size_t bufferLength = 0;
-        if (!device->readCharacteristic(UUID_CHARACTERISTIC_CURRENT_TIME, &buffer, &bufferLength))
-        {
-                if (buffer)
-                        free(buffer);
-                LOG_WARNING("Could not read CurrentTimeService characteristic from device %s.", device->address());
-                return false;
-        }
-
-        // decode the received data
         int devYear = 0;
         int devMonth = 0;
         int devDay = 0;
         int devHour = 0;
         int devMinute = 0;
         int devSecond = 0;
-        if (bufferLength < 7)
-                LOG_WARNING("Received too few bytes (only %d); unknown time on device %s.", bufferLength, device->address());
-        else
+        uint8_t buffer[MAX_BUFFER_SIZE];
+        int readBytes = device->readCharacteristic(UUID_CHARACTERISTIC_CURRENT_TIME, buffer, MAX_BUFFER_SIZE);
+        if (readBytes < 7)
+                LOG_WARNING("Could not read enough bytes from device %s.", device->address());
         {
                 devYear = static_cast<int>(buffer[0]) + (static_cast<int>(buffer[1]) << 8);
                 devMonth = static_cast<int>(buffer[2]);
@@ -80,7 +72,6 @@ bool CurrentTimeService::run(ManagedDevice *device)
                             devMinute,
                             devSecond);
         }
-        free(buffer);
         double devTimestamp = getComparableTimestamp(devYear, devMonth, devDay, devHour, devMinute, devSecond);
 
         // get current local time
@@ -95,7 +86,6 @@ bool CurrentTimeService::run(ManagedDevice *device)
                 delta *= -1.0;
         if (delta > 1.0)
         {
-                buffer = new uint8_t[9];
                 buffer[0] = static_cast<uint8_t>((timeInfo->tm_year + 1900) & 0xff);
                 buffer[1] = static_cast<uint8_t>((timeInfo->tm_year + 1900) >> 8);
                 buffer[2] = static_cast<uint8_t>(timeInfo->tm_mon + 1);
@@ -119,7 +109,6 @@ bool CurrentTimeService::run(ManagedDevice *device)
                 }
                 else
                         LOG_WARNING("Could not update time on device %s.", device->address());
-                delete[] buffer;
                 return success;
         }
         else

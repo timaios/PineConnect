@@ -6,6 +6,7 @@
 #include <time.h>
 
 #include "Logger.h"
+#include "BluezAdapter.h"
 #include "DeviceManager.h"
 #include "GattService.h"
 #include "CurrentTimeService.h"
@@ -31,7 +32,8 @@ int main(int argc, char **argv)
         // initialization
         Logger::setLogLevel(Logger::Debug);
         LOG_INFO("Starting.");
-        DeviceManager *devices = new DeviceManager;
+        BluezAdapter *bluezAdapter = new BluezAdapter("hci0");
+        DeviceManager *devices = new DeviceManager(bluezAdapter);
         int servicesCount = 1;
         GattService *services[1];
         services[0] = new CurrentTimeService();
@@ -54,24 +56,30 @@ int main(int argc, char **argv)
         _shutdown = false;
         while (!_shutdown)
         {
-                // find and connect devices
-                if (devices->allManagedDevicesConnected())
-                        LOG_VERBOSE("All managed devices are connected, skipping scan.");
-                else
+                // the bluetooth adapter has to be powered on
+                if (bluezAdapter->powered())
                 {
-                        if (devices->scan())
-                                devices->connectedDiscoveredManagedDevices();
-                }
-                if (_shutdown)
-                        break;
-
-                // run the services
-                for (int i = 0; i < servicesCount; i++)
-                {
-                        devices->runService(services[i]);
+                        // find and connect devices
+                        if (devices->allManagedDevicesConnected())
+                                LOG_VERBOSE("All managed devices are connected, skipping scan.");
+                        else
+                        {
+                                if (devices->scan())
+                                        devices->connectedDiscoveredManagedDevices();
+                        }
                         if (_shutdown)
                                 break;
+
+                        // run the services
+                        for (int i = 0; i < servicesCount; i++)
+                        {
+                                devices->runService(services[i]);
+                                if (_shutdown)
+                                        break;
+                        }
                 }
+                else
+                        LOG_VERBOSE("Bluetooth adapter is powered off.");
 
                 // sleep for a while
                 for (int i = 0; i < 10; i++)
@@ -87,9 +95,9 @@ int main(int argc, char **argv)
         delete devices;
         for (int i = 0; i < servicesCount; i++)
                 delete services[i];
+        delete bluezAdapter;
 
         // done
         LOG_INFO("Exiting.");
         return 0;
 }
-

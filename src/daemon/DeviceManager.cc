@@ -24,9 +24,11 @@
 #include "DeviceManager.h"
 
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 #include "Logger.h"
-#include "gattlib.h"
+#include "BluezAdapter.h"
 #include "Device.h"
 #include "ManagedDevice.h"
 #include "GattService.h"
@@ -39,11 +41,9 @@
 
 
 
-DeviceManager::DeviceManager()
+DeviceManager::DeviceManager(BluezAdapter *bluezAdapter)
 {
-        _discoveredDevicesCount = 0;
-        _discoveredDevicesCapacity = DEVICES_CAPACITY_INITIAL;
-        _discoveredDevices = new Device*[DEVICES_CAPACITY_INITIAL];
+        _bluezAdapter = bluezAdapter;
         _managedDevicesCount = 0;
         _managedDevicesCapacity = DEVICES_CAPACITY_INITIAL;
         _managedDevices = new ManagedDevice*[DEVICES_CAPACITY_INITIAL];
@@ -52,8 +52,6 @@ DeviceManager::DeviceManager()
 
 DeviceManager::~DeviceManager()
 {
-        clearDiscoveredDevicesList();
-        delete[] _discoveredDevices;
         clearManagedDevices();
         delete[] _managedDevices;
 }
@@ -61,36 +59,45 @@ DeviceManager::~DeviceManager()
 
 bool DeviceManager::scan()
 {
-        // start with an empty list
-        clearDiscoveredDevicesList();
-
-        // initialize the managed devices's discovered flag
-        _managedDevicesMutex.lock();
-        for (int i = 0; i < _managedDevicesCount; i++)
-                _managedDevices[i]->setDiscovered(false);
-        _managedDevicesMutex.unlock();
-
-        // open the default bluetooth adapter
-        LOG_VERBOSE("Starting device scan...");
-        void *adapter = nullptr;
-        if (gattlib_adapter_open(nullptr, &adapter) != 0)
-        {
-                LOG_ERROR("Could not open default bluetooth adapter.");
-                return false;
-        }
-
         // start scanning for BLE devices
-        if (gattlib_adapter_scan_enable(adapter, deviceDiscoveredCallback, SCAN_TIMEOUT_SECS, reinterpret_cast<void *>(this)) != GATTLIB_SUCCESS)
+        bool wasScanning = _bluezAdapter->isDiscovering();
+        if (wasScanning)
+                LOG_VERBOSE("Device scan is already ongoing.");
+        else
         {
-                LOG_ERROR("Could not start scanning for BLE devices.");
-                gattlib_adapter_close(adapter);
-                return false;
+                if (_bluezAdapter->startDiscovery())
+                        LOG_VERBOSE("Started device scan.");
+                else
+                {
+                        LOG_ERROR("Could not start scanning for devices.");
+                        return false;
+                }
         }
+
+        // give the adapter some time to discover new devices
+        sleep(SCAN_TIMEOUT_SECS);
 
         // scanning's done
-        gattlib_adapter_scan_disable(adapter);
-        gattlib_adapter_close(adapter);
-        LOG_VERBOSE("Device scan completed.");
+        if (!wasScanning)
+        {
+                if (_bluezAdapter->stopDiscovery())
+                        LOG_VERBOSE("Stopped device scan.");
+                else
+                {
+                        LOG_ERROR("Could not stop scanning for devices.");
+                        return false;
+                }
+        }
+
+        // show discovered devices
+        for (int i = 0; i < _bluezAdapter->discoveredDevicesCount(); i++)
+        {
+                const BluezAdapter::DeviceInfo *device = _bluezAdapter->discoveredDeviceAt(i);
+                if (device->name())
+                        LOG_VERBOSE("Detected device %s (%s).", device->address(), device->name());
+                else
+                        LOG_VERBOSE("Detected device %s.", device->address());
+        }
 
         // done
         return true;
@@ -99,19 +106,26 @@ bool DeviceManager::scan()
 
 void DeviceManager::connectedDiscoveredManagedDevices()
 {
-        std::lock_guard<std::mutex> guard(_managedDevicesMutex);
-
         for (int i = 0; i < _managedDevicesCount; i++)
         {
-                if (_managedDevices[i]->discovered())
-                        _managedDevices[i]->connect();
+                ManagedDevice *device = _managedDevices[i];
+                bool discovered = false;
+                for (int j = 0; j < _bluezAdapter->discoveredDevicesCount(); j++)
+                {
+                        if (strcasecmp(_bluezAdapter->discoveredDeviceAt(j)->address(), device->address()) == 0)
+                        {
+                                discovered = true;
+                                break;
+                        }
+                }
+                if (discovered)
+                        device->connect();
         }
 }
 
 
 void DeviceManager::clearManagedDevices()
 {
-        std::lock_guard<std::mutex> guard(_managedDevicesMutex);
         for (int i = 0; i < _managedDevicesCount; i++)
         {
                 _managedDevices[i]->disconnect();
@@ -124,8 +138,6 @@ void DeviceManager::clearManagedDevices()
 
 bool DeviceManager::addManagedDevice(const char *address)
 {
-        std::lock_guard<std::mutex> guard(_managedDevicesMutex);
-
         // make sure that device hasn't been added before
         for (int i = 0; i < _managedDevicesCount; i++)
         {
@@ -149,7 +161,7 @@ bool DeviceManager::addManagedDevice(const char *address)
         }
 
         // add the device
-        ManagedDevice *device = new ManagedDevice(address);
+        ManagedDevice *device = new ManagedDevice(_bluezAdapter, address);
         _managedDevices[_managedDevicesCount] = device;
         _managedDevicesCount++;
         LOG_INFO("Added managed device: %s", address);
@@ -157,35 +169,36 @@ bool DeviceManager::addManagedDevice(const char *address)
 }
 
 
-ManagedDevice *DeviceManager::managedDeviceByIndex(int index)
+ManagedDevice *DeviceManager::managedDeviceByIndex(int index) const
 {
-        std::lock_guard<std::mutex> guard(_managedDevicesMutex);
         if ((index >= 0) && (index < _managedDevicesCount))
                 return _managedDevices[index];
         return nullptr;
 }
 
 
-ManagedDevice *DeviceManager::managedDeviceByAddress(const char *address)
+ManagedDevice *DeviceManager::managedDeviceByAddress(const char *address) const
 {
-        std::lock_guard<std::mutex> guard(_managedDevicesMutex);
-        int index = unsafe_indexOfManagedDevice(address);
+        int index = indexOfManagedDevice(address);
         if (index >= 0)
                 return _managedDevices[index];
         return nullptr;
 }
 
 
-int DeviceManager::indexOfManagedDevice(const char *address)
+int DeviceManager::indexOfManagedDevice(const char *address) const
 {
-        std::lock_guard<std::mutex> guard(_managedDevicesMutex);
-        return unsafe_indexOfManagedDevice(address);
+        for (int i = 0; i < _managedDevicesCount; i++)
+        {
+                if (strcasecmp(_managedDevices[i]->address(), address) == 0)
+                        return i;
+        }
+        return -1;
 }
 
 
 bool DeviceManager::allManagedDevicesConnected()
 {
-        std::lock_guard<std::mutex> guard(_managedDevicesMutex);
         for (int i = 0; i < _managedDevicesCount; i++)
                 if (!_managedDevices[i]->isConnected())
                         return false;
@@ -198,104 +211,9 @@ void DeviceManager::runService(GattService *service)
         if (!service)
                 return;
 
-        std::lock_guard<std::mutex> guard(_managedDevicesMutex);
         for (int i = 0; i < _managedDevicesCount; i++)
         {
                 if (_managedDevices[i]->isConnected())
                         service->run(_managedDevices[i]);
         }
-}
-
-
-int DeviceManager::unsafe_indexOfManagedDevice(const char *address) const
-{
-        for (int i = 0; i < _managedDevicesCount; i++)
-        {
-                if (strcasecmp(_managedDevices[i]->address(), address) == 0)
-                        return i;
-        }
-        return -1;
-}
-
-
-void DeviceManager::clearDiscoveredDevicesList()
-{
-        std::lock_guard<std::mutex> guard(_discoveredDevicesMutex);
-
-        for (int i = 0; i < _discoveredDevicesCount; i++)
-        {
-                delete _discoveredDevices[i];
-                _discoveredDevices[i] = nullptr;
-        }
-        _discoveredDevicesCount = 0;
-}
-
-
-void DeviceManager::addDiscoveredDevice(const char *address, const char *name)
-{
-        std::lock_guard<std::mutex> managedDevicesGuard(_managedDevicesMutex);
-
-        // check if it's a managed device
-        int managedIndex = unsafe_indexOfManagedDevice(address);
-        if (managedIndex >= 0)
-        {
-                // update its name and discovery status
-                _managedDevices[managedIndex]->setName(name);
-                _managedDevices[managedIndex]->setDiscovered(true);
-
-                // log that event
-                if (name)
-                        LOG_VERBOSE("Discovered managed device %s (%s).", address, name);
-                else
-                        LOG_INFO("Discovered managed device %s.", address);
-        }
-        else
-        {
-                // log that event
-                if (name)
-                        LOG_VERBOSE("Discovered unmanaged device %s (%s).", address, name);
-                else
-                        LOG_VERBOSE("Discovered unmanaged device %s.", address);
-        }
-
-        std::lock_guard<std::mutex> discoveredDevicesGuard(_discoveredDevicesMutex);
-
-        // make sure there's enough capacity to store the device
-        if (_discoveredDevicesCount == _discoveredDevicesCapacity)
-        {
-                _discoveredDevicesCapacity += DEVICES_CAPACITY_GROWTH;
-                Device **newList = new Device*[_discoveredDevicesCapacity];
-                for (int i = 0; i < _discoveredDevicesCount; i++)
-                        newList[i] = _discoveredDevices[i];
-                delete[] _discoveredDevices;
-                _discoveredDevices = newList;
-                LOG_DEBUG("Discovered devices list capacity grew to %d.", _discoveredDevicesCapacity);
-        }
-
-        // add the device
-        Device *device = new Device(address, name);
-        _discoveredDevices[_discoveredDevicesCount] = device;
-        _discoveredDevicesCount++;
-}
-
-
-void DeviceManager::deviceDiscoveredCallback(void *adapter, const char *address, const char *name, void *userData)
-{
-        (void)adapter;
-
-        // guards
-        if (!address)
-        {
-                LOG_WARNING("No address was provided.");
-                return;
-        }
-        if (!userData)
-        {
-                LOG_WARNING("No userData was provided.");
-                return;
-        }
-
-        // extract the DeviceManager instance from the userData and forward the call
-        DeviceManager *mgr = reinterpret_cast<DeviceManager *>(userData);
-        mgr->addDiscoveredDevice(address, name);
 }

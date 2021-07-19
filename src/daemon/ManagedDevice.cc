@@ -27,15 +27,24 @@
 #include <string.h>
 
 #include "Logger.h"
-#include "gattlib.h"
+#include "BluezAdapter.h"
 
 
 
-ManagedDevice::ManagedDevice(const char *address)
+#define CONNECT_TIMEOUT      4000
+#define DISCONNECT_TIMEOUT   5000
+
+
+
+ManagedDevice::ManagedDevice(BluezAdapter *bluezAdapter, const char *address)
         : Device(address, nullptr)
 {
-        _connection = nullptr;
-        _discovered = false;
+        _bluezAdapter = bluezAdapter;
+}
+
+
+ManagedDevice::~ManagedDevice()
+{
 }
 
 
@@ -48,162 +57,90 @@ void ManagedDevice::setName(const char *value)
         }
         if (value)
         {
-                _name = new char[strlen(value) + 1];
-                strcpy(_name, value);
+                size_t len = strlen(value) + 1;
+                _name = new char[len];
+                strncpy(_name, value, len);
         }
 }
 
 
 bool ManagedDevice::isConnected()
 {
-        std::lock_guard<std::mutex> guard(_deviceMutex);
-        return (_connection);
+        return _bluezAdapter->isDeviceConnected(_address);
 }
 
 
 bool ManagedDevice::connect()
 {
-        std::lock_guard<std::mutex> guard(_deviceMutex);
-
-        if (_connection)
-                LOG_WARNING("Overwriting an existing connection!");
-
         LOG_INFO("Connecting to device %s...", _address);
-        _connection = gattlib_connect(nullptr, _address, GATTLIB_CONNECTION_OPTIONS_LEGACY_DEFAULT);
-        if (_connection)
-        {
-                // make sure we get notified if the device disconnects
-                gattlib_register_on_disconnect(_connection, deviceDisconnectedCallback, reinterpret_cast<void *>(this));
+        int prevTimeout = _bluezAdapter->timeout();
+        _bluezAdapter->setTimeout(CONNECT_TIMEOUT);
+        bool result = _bluezAdapter->connectDevice(_address, true);
+        if (result)
                 LOG_INFO("Connected to device %s.", _address);
-                return true;
-        }
         else
-        {
                 LOG_WARNING("Could not connect to device %s.", _address);
-                return false;
-        }
+        _bluezAdapter->setTimeout(prevTimeout);
+        return result;
 }
 
 
-void ManagedDevice::disconnect()
+bool ManagedDevice::disconnect()
 {
-        std::lock_guard<std::mutex> guard(_deviceMutex);
-
-        if (_connection)
-        {
-                LOG_INFO("Disconnecting device %s...", _address);
-                gattlib_disconnect(_connection);
-                _connection = nullptr;
-                _discovered = false;
+        LOG_INFO("Disconnecting device %s...", _address);
+        int prevTimeout = _bluezAdapter->timeout();
+        _bluezAdapter->setTimeout(DISCONNECT_TIMEOUT);
+        bool result = _bluezAdapter->disconnectDevice(_address);
+        if (result)
                 LOG_INFO("Disconnected device %s.", _address);
-        }
+        else
+                LOG_WARNING("Could not disconnected device %s.", _address);
+        _bluezAdapter->setTimeout(prevTimeout);
+        return result;
 }
 
 
-bool ManagedDevice::readCharacteristic(const char *charGuid, uint8_t **buffer, size_t *bufferSize, bool disconnectOnFailure)
+int ManagedDevice::readCharacteristic(const char *charGuid, uint8_t *buffer, int bufferSize)
 {
-        std::lock_guard<std::mutex> guard(_deviceMutex);
-
-        if (!_connection)
+        // get the characteristic's path
+        char *charPath = _bluezAdapter->findCharacteristicPath(_address, charGuid);
+        if (!charPath)
         {
-                LOG_WARNING("Tried to read characteristic from a closed connection.");
-                return false;
+                LOG_WARNING("Could not find GATT characteristic %s on device %s.", charGuid, _address);
+                return -1;
         }
 
-        uuid_t ctsCharId;
-        gattlib_string_to_uuid(charGuid, strlen(charGuid) + 1, &ctsCharId);
-        int result = gattlib_read_char_by_uuid(_connection, &ctsCharId, reinterpret_cast<void **>(buffer), bufferSize);
-        if (result != GATTLIB_SUCCESS)
-        {
-                if (result == GATTLIB_NOT_FOUND)
-                {
-                        LOG_WARNING("Could not find the GATT characteristic on device %s.", _address);
-                        if (disconnectOnFailure)
-                        {
-                                // in case of GATTLIB_NOT_FOUND the connection can usually still be closed
-                                gattlib_disconnect(_connection);
-                                _connection = nullptr;
-                                _discovered = false;
-                                LOG_INFO("Device %s has disconnected.", _address);
-                        }
-                }
-                else
-                {
-                        // in case of another error, the connection is already toast
-                        LOG_ERROR("Error while reading the GATT characteristic on device %s.", _address);
-                        _connection = nullptr;
-                        _discovered = false;
-                        LOG_INFO("Device %s has disconnected.", _address);
-                }
-                return false;
-        }
+        // read the data
+        int readBytes = _bluezAdapter->readCharacteristic(charPath, buffer, bufferSize);
+        delete[] charPath;
 
-        return true;
+        // check result
+        if (readBytes < 0)
+                LOG_ERROR("Error while reading from GATT characteristic %s on device %s.", charGuid, _address);
+        else
+                LOG_DEBUG("Read %d bytes from GATT characteristic %s on device %s.", readBytes, charGuid, _address);
+        return readBytes;
 }
 
 
-bool ManagedDevice::writeCharacteristic(const char *charGuid, uint8_t *buffer, size_t length, bool disconnectOnFailure)
+bool ManagedDevice::writeCharacteristic(const char *charGuid, uint8_t *buffer, int length)
 {
-        std::lock_guard<std::mutex> guard(_deviceMutex);
-
-        if (!_connection)
+        // get the characteristic's path
+        char *charPath = _bluezAdapter->findCharacteristicPath(_address, charGuid);
+        if (!charPath)
         {
-                LOG_WARNING("Tried to write characteristic to a closed connection.");
+                LOG_WARNING("Could not find GATT characteristic %s on device %s.", charGuid, _address);
                 return false;
         }
 
-        uuid_t ctsCharId;
-        gattlib_string_to_uuid(charGuid, strlen(charGuid) + 1, &ctsCharId);
-        int result = gattlib_write_char_by_uuid(_connection, &ctsCharId, reinterpret_cast<const void *>(buffer), length);
-        if (result != GATTLIB_SUCCESS)
-        {
-                if (result == GATTLIB_NOT_FOUND)
-                {
-                        LOG_WARNING("Could not find GATT characteristic on device %s.", _address);
-                        if (disconnectOnFailure)
-                        {
-                                // in case of GATTLIB_NOT_FOUND the connection can usually still be closed
-                                gattlib_disconnect(_connection);
-                                _connection = nullptr;
-                                _discovered = false;
-                                LOG_INFO("Device %s has disconnected.", _address);
-                        }
-                }
-                else
-                {
-                        // in case of another error, the connection is already toast
-                        LOG_ERROR("Error while writing GATT characteristic on device %s.", _address);
-                        _connection = nullptr;
-                        _discovered = false;
-                        LOG_INFO("Device %s has disconnected.", _address);
-                }
-                return false;
-        }
+        // write the data
+        bool result = _bluezAdapter->writeCharacteristic(charPath, buffer, length);
+        delete[] charPath;
 
-        return true;
-}
-
-
-void ManagedDevice::handleDisconnect()
-{
-        std::lock_guard<std::mutex> guard(_deviceMutex);
-
-        _connection = nullptr;
-        _discovered = false;
-        LOG_INFO("Device %s disconnected.", _address);
-}
-
-
-void ManagedDevice::deviceDisconnectedCallback(void *userData)
-{
-        // guard
-        if (!userData)
-        {
-                LOG_WARNING("No userData was provided.");
-                return;
-        }
-
-        // extract the ManagedDevice instance from the userData and forward the call
-        ManagedDevice *device = reinterpret_cast<ManagedDevice *>(userData);
-        device->handleDisconnect();
+        // check result
+        if (!result)
+                LOG_ERROR("Error while writing to GATT characteristic %s on device %s.", charGuid, _address);
+        else
+                LOG_DEBUG("Wrote %d bytes to GATT characteristic %s on device %s.", length, charGuid, _address);
+        return result;
 }
