@@ -94,9 +94,9 @@ bool DeviceManager::scan()
         {
                 const BluezAdapter::DeviceInfo *device = _bluezAdapter->discoveredDeviceAt(i);
                 if (device->name())
-                        LOG_VERBOSE("Detected device %s (%s).", device->address(), device->name());
+                        LOG_VERBOSE("Device %s (%s) is currently registered with Bluez.", device->address(), device->name());
                 else
-                        LOG_VERBOSE("Detected device %s.", device->address());
+                        LOG_VERBOSE("Device %s is currently registered with Bluez.", device->address());
         }
 
         // done
@@ -118,7 +118,7 @@ void DeviceManager::connectedDiscoveredManagedDevices()
                                 break;
                         }
                 }
-                if (discovered)
+                if (discovered && !device->isConnected())
                         device->connect();
         }
 }
@@ -128,7 +128,8 @@ void DeviceManager::clearManagedDevices()
 {
         for (int i = 0; i < _managedDevicesCount; i++)
         {
-                _managedDevices[i]->disconnect();
+                if (_managedDevices[i]->isConnected())
+                        _managedDevices[i]->disconnect();
                 delete _managedDevices[i];
                 _managedDevices[i] = nullptr;
         }
