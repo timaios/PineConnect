@@ -22,9 +22,9 @@ build/lib/Logger.o: src/lib/logger/Logger.h src/lib/logger/Logger.cc
 	@mkdir -p build/lib
 	$(CXX) -c -o build/lib/Logger.o src/lib/logger/Logger.cc
 
-build/lib/BluezAdapter.o: src/lib/bluez/BluezAdapter.h src/lib/bluez/BluezAdapter.cc src/lib/logger/Logger.h
+build/lib/BluezAdapter.o: src/lib/dbus/BluezAdapter.h src/lib/dbus/BluezAdapter.cc src/lib/logger/Logger.h
 	@mkdir -p build/lib
-	$(CXX) $(DBUS_INCS) -Isrc/lib/logger -c -o build/lib/BluezAdapter.o src/lib/bluez/BluezAdapter.cc
+	$(CXX) $(DBUS_INCS) -Isrc/lib/logger -c -o build/lib/BluezAdapter.o src/lib/dbus/BluezAdapter.cc
 
 
 
@@ -32,7 +32,7 @@ build/lib/BluezAdapter.o: src/lib/bluez/BluezAdapter.h src/lib/bluez/BluezAdapte
 
 DAEMON_HDRS = \
 	src/lib/logger/Logger.h \
-	src/lib/bluez/BluezAdapter.h \
+	src/lib/dbus/BluezAdapter.h \
 	src/daemon/Device.h \
 	src/daemon/ManagedDevice.h \
 	src/daemon/DeviceManager.h \
@@ -41,7 +41,7 @@ DAEMON_HDRS = \
 
 DAEMON_LIB_INCS = \
 	-Isrc/lib/logger \
-	-Isrc/lib/bluez \
+	-Isrc/lib/dbus \
 	$(DBUS_INCS)
 
 DAEMON_OBJS = \

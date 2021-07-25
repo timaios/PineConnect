@@ -12,12 +12,12 @@ unix {
 }
 
 
-INCLUDEPATH += ../lib/logger ../lib/bluez
+INCLUDEPATH += ../lib/logger ../lib/dbus
 
 
 SOURCES += \
         ../lib/logger/Logger.cc \
-        ../lib/bluez/BluezAdapter.cc \
+        ../lib/dbus/BluezAdapter.cc \
         CurrentTimeService.cc \
         Device.cc \
         DeviceManager.cc \
@@ -27,7 +27,7 @@ SOURCES += \
 
 HEADERS += \
         ../lib/logger/Logger.h \
-        ../lib/bluez/BluezAdapter.h \
+        ../lib/dbus/BluezAdapter.h \
         CurrentTimeService.h \
         Device.h \
         DeviceManager.h \
