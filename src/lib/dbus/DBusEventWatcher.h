@@ -54,7 +54,7 @@ public:
 
         void registerSink(EventSink *sink);
 
-        void checkQueue(int timeoutSecs);
+        bool checkQueue(int timeoutSecs);
 
 private:
 

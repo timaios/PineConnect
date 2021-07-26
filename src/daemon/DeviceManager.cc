@@ -105,7 +105,7 @@ bool DeviceManager::stopScan()
 }
 
 
-void DeviceManager::connectedDiscoveredManagedDevices()
+void DeviceManager::connectDiscoveredManagedDevices()
 {
         for (int i = 0; i < _managedDevicesCount; i++)
         {

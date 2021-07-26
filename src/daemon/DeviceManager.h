@@ -41,7 +41,7 @@ public:
 
         bool startScan();
         bool stopScan();
-        void connectedDiscoveredManagedDevices();
+        void connectDiscoveredManagedDevices();
 
         void clearManagedDevices();
         int managedDevicesCount() const { return _managedDevicesCount; }

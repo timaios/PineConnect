@@ -64,7 +64,14 @@ int main(int argc, char **argv)
         while (!_shutdown)
         {
                 // check message queue for ten seconds at most
-                sessionBusWatcher->checkQueue(10);
+                for (int i = 0; i < 10; i++)
+                {
+                        bool pendingMessages = sessionBusWatcher->checkQueue(1);
+                        if (_shutdown || pendingMessages)
+                                break;
+                }
+                if (_shutdown)
+                        break;
 
                 // the bluetooth adapter has to be powered on
                 if (bluezAdapter->powered())
@@ -78,11 +85,16 @@ int main(int argc, char **argv)
                                 if (devices->startScan())
                                 {
                                         // while waiting for the scan to complete, check the message queue
-                                        sessionBusWatcher->checkQueue(4);
+                                        for (int i = 0; i < 4; i++)
+                                        {
+                                                bool pendingMessages = sessionBusWatcher->checkQueue(1);
+                                                if (_shutdown || pendingMessages)
+                                                        break;
+                                        }
 
                                         // stop scan and connect devices
-                                        if (devices->stopScan())
-                                                devices->connectedDiscoveredManagedDevices();
+                                        if (devices->stopScan() && !_shutdown)
+                                                devices->connectDiscoveredManagedDevices();
                                 }
                         }
                         if (_shutdown)

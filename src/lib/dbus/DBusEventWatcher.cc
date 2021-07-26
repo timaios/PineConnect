@@ -174,20 +174,20 @@ void DBusEventWatcher::registerSink(EventSink *sink)
 }
 
 
-void DBusEventWatcher::checkQueue(int timeoutSecs)
+bool DBusEventWatcher::checkQueue(int timeoutSecs)
 {
         // guard
         if (!_connection)
-                return;
+                return false;
 
         // check for messages
+        bool pendingMessages = false;
         for (int i = 0; i < (timeoutSecs * 10); i++)
         {
                 // give the connection some time to process messages
                 dbus_connection_read_write(_connection, 100);
 
                 // process all pending messages
-                bool pendingMessages = false;
                 while (true)
                 {
                         // get the next message from the queue
@@ -209,4 +209,5 @@ void DBusEventWatcher::checkQueue(int timeoutSecs)
                 if (pendingMessages)
                         break;
         }
+        return pendingMessages;
 }
