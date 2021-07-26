@@ -837,7 +837,7 @@ void BluezAdapter::updateDiscoveredDevicesList_device(DBusMessageIter *deviceIte
                 // add the device
                 _discoveredDevices[_discoveredDevicesCount] = device;
                 _discoveredDevicesCount++;
-                LOG_DEBUG("Added discovered device: %s", device->address());
+                LOG_DEBUG("Found registered device: %s", device->address());
         }
         else
                 delete device;
