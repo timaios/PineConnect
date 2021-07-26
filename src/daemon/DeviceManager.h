@@ -39,7 +39,8 @@ public:
         DeviceManager(BluezAdapter *bluezAdapter);
         ~DeviceManager();
 
-        bool scan();
+        bool startScan();
+        bool stopScan();
         void connectedDiscoveredManagedDevices();
 
         void clearManagedDevices();
@@ -60,6 +61,7 @@ private:
         int _managedDevicesCount;
         int _managedDevicesCapacity;
         ManagedDevice **_managedDevices;
+        bool _wasScanning;
 };
 
 #endif // DEVICEMANAGER_H

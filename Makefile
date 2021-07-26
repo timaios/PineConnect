@@ -26,6 +26,10 @@ build/lib/BluezAdapter.o: src/lib/dbus/BluezAdapter.h src/lib/dbus/BluezAdapter.
 	@mkdir -p build/lib
 	$(CXX) $(DBUS_INCS) -Isrc/lib/logger -c -o build/lib/BluezAdapter.o src/lib/dbus/BluezAdapter.cc
 
+build/lib/DBusEventWatcher.o: src/lib/dbus/DBusEventWatcher.h src/lib/dbus/DBusEventWatcher.cc src/lib/logger/Logger.h
+	@mkdir -p build/lib
+	$(CXX) $(DBUS_INCS) -Isrc/lib/logger -c -o build/lib/DBusEventWatcher.o src/lib/dbus/DBusEventWatcher.cc
+
 
 
 # PineConnect daemon
@@ -33,11 +37,14 @@ build/lib/BluezAdapter.o: src/lib/dbus/BluezAdapter.h src/lib/dbus/BluezAdapter.
 DAEMON_HDRS = \
 	src/lib/logger/Logger.h \
 	src/lib/dbus/BluezAdapter.h \
+	src/lib/dbus/DBusEventWatcher.h \
 	src/daemon/Device.h \
 	src/daemon/ManagedDevice.h \
 	src/daemon/DeviceManager.h \
 	src/daemon/GattService.h \
-	src/daemon/CurrentTimeService.h
+	src/daemon/CurrentTimeService.h \
+	src/daemon/AlertNotificationService.h \
+	src/daemon/NotificationEventSink.h
 
 DAEMON_LIB_INCS = \
 	-Isrc/lib/logger \
@@ -51,8 +58,11 @@ DAEMON_OBJS = \
 	build/daemon/DeviceManager.o \
 	build/daemon/GattService.o \
 	build/daemon/CurrentTimeService.o \
+	build/daemon/AlertNotificationService.o \
+	build/daemon/NotificationEventSink.o \
 	build/lib/Logger.o \
-	build/lib/BluezAdapter.o
+	build/lib/BluezAdapter.o \
+	build/lib/DBusEventWatcher.o
 
 build/daemon/pineconnectd: $(DAEMON_OBJS)
 	@mkdir -p build/daemon
@@ -81,6 +91,14 @@ build/daemon/GattService.o: $(DAEMON_HDRS) src/daemon/GattService.cc
 build/daemon/CurrentTimeService.o: $(DAEMON_HDRS) src/daemon/CurrentTimeService.cc
 	@mkdir -p build/daemon
 	$(CXX) $(DAEMON_LIB_INCS) -c -o build/daemon/CurrentTimeService.o src/daemon/CurrentTimeService.cc
+
+build/daemon/AlertNotificationService.o: $(DAEMON_HDRS) src/daemon/AlertNotificationService.cc
+	@mkdir -p build/daemon
+	$(CXX) $(DAEMON_LIB_INCS) -c -o build/daemon/AlertNotificationService.o src/daemon/AlertNotificationService.cc
+
+build/daemon/NotificationEventSink.o: $(DAEMON_HDRS) src/daemon/NotificationEventSink.cc
+	@mkdir -p build/daemon
+	$(CXX) $(DAEMON_LIB_INCS) -c -o build/daemon/NotificationEventSink.o src/daemon/NotificationEventSink.cc
 
 
 

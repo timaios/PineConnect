@@ -37,7 +37,6 @@
 
 #define DEVICES_CAPACITY_INITIAL   64
 #define DEVICES_CAPACITY_GROWTH    32
-#define SCAN_TIMEOUT_SECS          4
 
 
 
@@ -57,11 +56,11 @@ DeviceManager::~DeviceManager()
 }
 
 
-bool DeviceManager::scan()
+bool DeviceManager::startScan()
 {
         // start scanning for BLE devices
-        bool wasScanning = _bluezAdapter->isDiscovering();
-        if (wasScanning)
+        _wasScanning = _bluezAdapter->isDiscovering();
+        if (_wasScanning)
                 LOG_VERBOSE("Device scan is already ongoing.");
         else
         {
@@ -73,12 +72,14 @@ bool DeviceManager::scan()
                         return false;
                 }
         }
+        return true;
+}
 
-        // give the adapter some time to discover new devices
-        sleep(SCAN_TIMEOUT_SECS);
 
+bool DeviceManager::stopScan()
+{
         // scanning's done
-        if (!wasScanning)
+        if (!_wasScanning)
         {
                 if (_bluezAdapter->stopDiscovery())
                         LOG_VERBOSE("Stopped device scan.");
