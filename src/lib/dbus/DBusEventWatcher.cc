@@ -103,9 +103,7 @@ bool DBusEventWatcher::EventSink::isSignal(DBusMessage *message, const char *int
 DBusEventWatcher::DBusEventWatcher(bool watchSessionBus)
 {
         // initialize
-        _sinksCapacity = SINK_LIST_CAPACITY_INITIAL;
-        _sinksCount = 0;
-        _sinks = new EventSink*[_sinksCapacity];
+        _sinks.clear();
 
         // open DBus connection
         DBusError dbusError;
@@ -132,7 +130,6 @@ DBusEventWatcher::DBusEventWatcher(bool watchSessionBus)
 
 DBusEventWatcher::~DBusEventWatcher()
 {
-        delete[] _sinks;
 }
 
 
@@ -142,20 +139,8 @@ void DBusEventWatcher::registerSink(EventSink *sink)
         if (!sink)
                 return;
 
-        // grow the list if necessary
-        if (_sinksCount == _sinksCapacity)
-        {
-                _sinksCapacity += SINK_LIST_CAPACITY_GROWTH;
-                EventSink **newList = new EventSink*[_sinksCapacity];
-                for (int i = 0; i < _sinksCount; i++)
-                        newList[i] = _sinks[i];
-                delete[] _sinks;
-                _sinks = newList;
-        }
-
         // add the sink
-        _sinks[_sinksCount] = sink;
-        _sinksCount++;
+        _sinks.push_back(sink);
         LOG_DEBUG("Added event sink: %s", sink->id());
 
         // add the sink's matches
@@ -198,8 +183,8 @@ bool DBusEventWatcher::checkQueue(int timeoutSecs)
                                 break;
 
                         // notify the event sinks
-                        for (int i = 0; i < _sinksCount; i++)
-                                _sinks[i]->inspectMessage(message);
+                        for (EventSink *sink : _sinks)
+                                sink->inspectMessage(message);
 
                         // clean up
                         dbus_message_unref(message);

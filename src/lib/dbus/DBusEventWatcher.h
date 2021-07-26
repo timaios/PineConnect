@@ -25,6 +25,7 @@
 #define DBUSEVENTWATCHER_H
 
 
+#include <vector>
 #include <dbus/dbus.h>
 
 
@@ -59,9 +60,7 @@ public:
 private:
 
         DBusConnection *_connection;
-        int _sinksCapacity;
-        int _sinksCount;
-        EventSink **_sinks;
+        std::vector<EventSink *> _sinks;
 };
 
 #endif // DBUSEVENTWATCHER_H
