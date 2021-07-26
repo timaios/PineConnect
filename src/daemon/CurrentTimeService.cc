@@ -39,12 +39,17 @@
 
 
 CurrentTimeService::CurrentTimeService()
+        : GattService()
 {
 }
 
 
 bool CurrentTimeService::run(ManagedDevice *device)
 {
+        // guard
+        if (!device)
+                return false;
+
         // get the device's current time
         int devYear = 0;
         int devMonth = 0;
@@ -56,6 +61,7 @@ bool CurrentTimeService::run(ManagedDevice *device)
         int readBytes = device->readCharacteristic(UUID_CHARACTERISTIC_CURRENT_TIME, buffer, MAX_BUFFER_SIZE);
         if (readBytes < 7)
                 LOG_WARNING("Could not read enough bytes from device %s.", device->address());
+        else
         {
                 devYear = static_cast<int>(buffer[0]) + (static_cast<int>(buffer[1]) << 8);
                 devMonth = static_cast<int>(buffer[2]);
@@ -95,7 +101,7 @@ bool CurrentTimeService::run(ManagedDevice *device)
                 buffer[6] = static_cast<uint8_t>(timeInfo->tm_sec);
                 buffer[7] = static_cast<uint8_t>(0);   // fractions of seconds
                 buffer[8] = static_cast<uint8_t>(0);   // reason for change
-                int success = device->writeCharacteristic(UUID_CHARACTERISTIC_CURRENT_TIME, buffer, 9);
+                bool success = device->writeCharacteristic(UUID_CHARACTERISTIC_CURRENT_TIME, buffer, 9);
                 if (success)
                 {
                         LOG_INFO("Updated time on device %s: %04d-%02d-%02d %02d:%02d:%02d",
