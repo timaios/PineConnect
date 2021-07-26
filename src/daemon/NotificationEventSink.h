@@ -27,6 +27,10 @@
 
 #include "DBusEventWatcher.h"
 
+#include <vector>
+#include <map>
+#include <string>
+
 
 
 class NotificationEventSink : public DBusEventWatcher::EventSink
@@ -36,13 +40,14 @@ public:
         struct Notification
         {
         public:
-                Notification();
-                ~Notification();
                 int id;
-                char *appName;
-                char *appIcon;
-                char *summary;
-                char *body;
+                std::string appName;
+                std::string appIcon;
+                std::string summary;
+                std::string body;
+                std::vector<std::string> actions;
+                std::map<std::string, std::string> hints;
+                int expiryTimeout;
         };
 
 
@@ -56,15 +61,13 @@ public:
 
         void inspectMessage(DBusMessage *message) override;
 
-        int pendingNotificationsCount() const { return _notificationsCount; }
+        int pendingNotificationsCount() const { return static_cast<int>(_notifications.size()); }
         const Notification *pendingNotification(int index) const;
         void clearNotificationQueue();
 
 private:
 
-        int _notificationsCapacity;
-        int _notificationsCount;
-        Notification **_notifications;
+        std::vector<Notification *> _notifications;
 
         void deleteNotificationAt(int index);
 };

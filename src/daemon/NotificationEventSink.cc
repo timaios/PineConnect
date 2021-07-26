@@ -31,53 +31,15 @@
 
 
 
-#define NOTIFICATIONS_CAPACITY_INITIAL   16
-#define NOTIFICATIONS_CAPACITY_GROWTH    16
-
-#define APP_NAME_LENGTH   32
-#define APP_ICON_LENGTH   32
-#define SUMMARY_LENGTH    64
-#define BODY_LENGTH       256
-
-
-
-NotificationEventSink::Notification::Notification()
-{
-        appName = new char[APP_NAME_LENGTH];
-        appIcon = new char[APP_ICON_LENGTH];
-        summary = new char[SUMMARY_LENGTH];
-        body = new char[BODY_LENGTH];
-
-        id = -1;
-        appName[0] = '\0';
-        appIcon[0] = '\0';
-        summary[0] = '\0';
-        body[0] = '\0';
-}
-
-
-NotificationEventSink::Notification::~Notification()
-{
-        delete[] appName;
-        delete[] appIcon;
-        delete[] summary;
-        delete[] body;
-}
-
-
-
 NotificationEventSink::NotificationEventSink()
 {
-        _notificationsCapacity = NOTIFICATIONS_CAPACITY_INITIAL;
-        _notificationsCount = 0;
-        _notifications = new Notification*[_notificationsCapacity];
+        _notifications.clear();
 }
 
 
 NotificationEventSink::~NotificationEventSink()
 {
         clearNotificationQueue();
-        delete[] _notifications;
 }
 
 
@@ -108,22 +70,9 @@ void NotificationEventSink::inspectMessage(DBusMessage *message)
         // store Notify method call's parameters
         if (isMethodCall(message, "org.freedesktop.Notifications", "Notify"))
         {
-                // grow the notifications list if necessary
-                if (_notificationsCount == _notificationsCapacity)
-                {
-                        _notificationsCapacity += NOTIFICATIONS_CAPACITY_GROWTH;
-                        Notification **newList = new Notification*[_notificationsCapacity];
-                        for (int i = 0; i < _notificationsCount; i++)
-                                newList[i] = _notifications[i];
-                        delete[] _notifications;
-                        _notifications = newList;
-                        LOG_DEBUG("Notification list capacity grew to %d items.", _notificationsCapacity);
-                }
-
                 // create a new notification object
                 Notification *notification = new Notification();
-                _notifications[_notificationsCount] = notification;
-                _notificationsCount++;
+                _notifications.push_back(notification);
 
                 // save the app's name
                 DBusMessageIter paramsIter;
@@ -132,8 +81,8 @@ void NotificationEventSink::inspectMessage(DBusMessage *message)
                 {
                         const char *appName = nullptr;
                         dbus_message_iter_get_basic(&paramsIter, &appName);
-                        strncpy(notification->appName, appName, APP_NAME_LENGTH - 1);
-                        notification->appName[APP_NAME_LENGTH - 1] = '\0';
+                        if (appName)
+                                notification->appName = appName;
                 }
 
                 // skip the "replace ID"
@@ -145,8 +94,8 @@ void NotificationEventSink::inspectMessage(DBusMessage *message)
                 {
                         const char *appIcon = nullptr;
                         dbus_message_iter_get_basic(&paramsIter, &appIcon);
-                        strncpy(notification->appIcon, appIcon, APP_ICON_LENGTH - 1);
-                        notification->appIcon[APP_ICON_LENGTH - 1] = '\0';
+                        if (appIcon)
+                                notification->appIcon = appIcon;
                 }
 
                 // save the summary
@@ -155,8 +104,8 @@ void NotificationEventSink::inspectMessage(DBusMessage *message)
                 {
                         const char *summary = nullptr;
                         dbus_message_iter_get_basic(&paramsIter, &summary);
-                        strncpy(notification->summary, summary, SUMMARY_LENGTH - 1);
-                        notification->summary[SUMMARY_LENGTH - 1] = '\0';
+                        if (summary)
+                                notification->summary = summary;
                 }
 
                 // save the body
@@ -165,12 +114,70 @@ void NotificationEventSink::inspectMessage(DBusMessage *message)
                 {
                         const char *body = nullptr;
                         dbus_message_iter_get_basic(&paramsIter, &body);
-                        strncpy(notification->body, body, BODY_LENGTH - 1);
-                        notification->body[BODY_LENGTH - 1] = '\0';
+                        if (body)
+                                notification->body = body;
+                }
+
+                // go through the actions
+                dbus_message_iter_next(&paramsIter);
+                DBusMessageIter actionsIter;
+                dbus_message_iter_recurse(&paramsIter, &actionsIter);
+                while (true)
+                {
+                        if (dbus_message_iter_get_arg_type(&actionsIter) == DBUS_TYPE_STRING)
+                        {
+                                const char *action = nullptr;
+                                dbus_message_iter_get_basic(&actionsIter, &action);
+                                if (action)
+                                        notification->actions.push_back(action);
+                        }
+                        if (dbus_message_iter_next(&actionsIter) == FALSE)
+                                break;
+                }
+
+                // go through the hints dictionary
+                dbus_message_iter_next(&paramsIter);
+                DBusMessageIter hintsIter;
+                dbus_message_iter_recurse(&paramsIter, &hintsIter);
+                while (true)
+                {
+                        if (dbus_message_iter_get_arg_type(&hintsIter) == DBUS_TYPE_DICT_ENTRY)
+                        {
+                                // get the key
+                                DBusMessageIter hintIter;
+                                dbus_message_iter_recurse(&hintsIter, &hintIter);
+                                const char *hintKey = nullptr;
+                                if (dbus_message_iter_get_arg_type(&hintIter) == DBUS_TYPE_STRING)
+                                        dbus_message_iter_get_basic(&hintIter, &hintKey);
+
+                                // get the value
+                                dbus_message_iter_next(&hintIter);
+                                const char *hintValue = nullptr;
+                                DBusMessageIter valueIter;
+                                dbus_message_iter_recurse(&hintIter, &valueIter);
+                                if (dbus_message_iter_get_arg_type(&valueIter) == DBUS_TYPE_STRING)
+                                        dbus_message_iter_get_basic(&valueIter, &hintValue);
+
+                                // store hint
+                                if (hintKey && hintValue)
+                                        notification->hints[hintKey] = hintValue;
+
+                        }
+                        if (dbus_message_iter_next(&hintsIter) == FALSE)
+                                break;
+                }
+
+                // get the expiry timeout
+                dbus_message_iter_next(&paramsIter);
+                if (dbus_message_iter_get_arg_type(&paramsIter) == DBUS_TYPE_INT32)
+                {
+                        dbus_int32_t timeout = 0;
+                        dbus_message_iter_get_basic(&paramsIter, &timeout);
+                        notification->expiryTimeout = static_cast<int>(timeout);
                 }
 
                 // done
-                LOG_DEBUG("Got a Notify method call from %s.", notification->appName);
+                LOG_DEBUG("Got a Notify method call from %s.", notification->appName.c_str());
                 return;
         }
 
@@ -184,8 +191,8 @@ void NotificationEventSink::inspectMessage(DBusMessage *message)
                 {
                         dbus_uint32_t id = 0;
                         dbus_message_iter_get_basic(&paramsIter, &id);
-                        if (_notificationsCount > 0)
-                                _notifications[_notificationsCount - 1]->id = static_cast<int>(id);
+                        if (!_notifications.empty())
+                                _notifications.back()->id = static_cast<int>(id);
                 }
 
                 // done
@@ -203,7 +210,7 @@ void NotificationEventSink::inspectMessage(DBusMessage *message)
                 {
                         dbus_uint32_t id = 0;
                         dbus_message_iter_get_basic(&paramsIter, &id);
-                        for (int i = 0; i < _notificationsCount; i++)
+                        for (int i = 0; i < static_cast<int>(_notifications.size()); i++)
                         {
                                 if (_notifications[i]->id == static_cast<int>(id))
                                 {
@@ -223,7 +230,7 @@ void NotificationEventSink::inspectMessage(DBusMessage *message)
 const NotificationEventSink::Notification *NotificationEventSink::pendingNotification(int index) const
 {
         // guard
-        if ((index < 0) || (index >= _notificationsCount))
+        if ((index < 0) || (index >= static_cast<int>(_notifications.size())))
                 return nullptr;
 
         return static_cast<const Notification *>(_notifications[index]);
@@ -232,24 +239,18 @@ const NotificationEventSink::Notification *NotificationEventSink::pendingNotific
 
 void NotificationEventSink::clearNotificationQueue()
 {
-        for (int i = 0; i < _notificationsCount; i++)
-        {
-                delete _notifications[i];
-                _notifications[i] = nullptr;
-        }
-        _notificationsCount = 0;
+        for (Notification *notification : _notifications)
+                delete notification;
+        _notifications.clear();
 }
 
 
 void NotificationEventSink::deleteNotificationAt(int index)
 {
         // guard
-        if ((index < 0) || (index >= _notificationsCount))
+        if ((index < 0) || (index >= static_cast<int>(_notifications.size())))
                 return;
 
         delete _notifications[index];
-        for (int j = index + 1; j < _notificationsCount; j++)
-                _notifications[j - 1] = _notifications[j];
-        _notificationsCount--;
-        _notifications[_notificationsCount] = nullptr;
+        _notifications.erase(_notifications.begin() + index);
 }

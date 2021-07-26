@@ -62,13 +62,13 @@ bool AlertNotificationService::run(ManagedDevice *device)
                 buffer[0] = 1;    // category: e-mail
                 buffer[1] = 1;    // number of new alerts (messages)
                 buffer[2] = 34;   // E-mail icon
-                strncpy(reinterpret_cast<char *>(buffer + 3), notification->summary, 32);
+                strncpy(reinterpret_cast<char *>(buffer + 3), notification->summary.c_str(), 32);
                 buffer[35] = 0;
 
                 // send it
                 bool success = device->writeCharacteristic(UUID_CHARACTERISTIC_ALERT_NOTIFICATION_NEW_ALERT, buffer, 36);
                 if (success)
-                        LOG_INFO("Sent notification to device %s: %s", device->address(), notification->summary);
+                        LOG_INFO("Sent notification to device %s: %s", device->address(), notification->summary.c_str());
                 else
                 {
                         LOG_WARNING("Could not send notification to device %s.", device->address());
