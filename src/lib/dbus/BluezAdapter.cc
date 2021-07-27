@@ -31,59 +31,27 @@
 
 
 
-#define DEVICE_ADDRESS_LENGTH          17
-#define DEVICE_LIST_CAPACITY_INITIAL   64
-#define DEVICE_LIST_CAPACITY_GROWTH    32
+#define DEVICE_ADDRESS_LENGTH   17
+#define MAX_PATH_LENGTH         256
+#define DEFAULT_TIMEOUT         4000
 
-#define MAX_PATH_LENGTH                256
-
-#define DEFAULT_TIMEOUT                4000
-
-
-
-BluezAdapter::DeviceInfo::DeviceInfo()
-{
-        _address = nullptr;
-        _name = nullptr;
-}
-
-
-BluezAdapter::DeviceInfo::~DeviceInfo()
-{
-        if (_address)
-                delete[] _address;
-        if (_name)
-                delete[] _name;
-}
 
 
 void BluezAdapter::DeviceInfo::setAddress(const char *value)
 {
-        if (_address)
-                delete[] _address;
         if (value)
-        {
-                size_t valueLength = strlen(value) + 1;
-                _address = new char[valueLength];
-                strncpy(_address, value, valueLength);
-        }
+                _address = value;
         else
-                _address = nullptr;
+                _address.clear();
 }
 
 
 void BluezAdapter::DeviceInfo::setName(const char *value)
 {
-        if (_name)
-                delete[] _name;
         if (value)
-        {
-                size_t valueLength = strlen(value) + 1;
-                _name = new char[valueLength];
-                strncpy(_name, value, valueLength);
-        }
+                _name = value;
         else
-                _name = nullptr;
+                _name.clear();
 }
 
 
@@ -92,22 +60,13 @@ BluezAdapter::BluezAdapter(const char *hci)
 {
         // initialize
         _timeout = DEFAULT_TIMEOUT;
-        _discoveredDevicesCapacity = DEVICE_LIST_CAPACITY_INITIAL;
-        _discoveredDevicesCount = 0;
-        _discoveredDevices = new DeviceInfo*[_discoveredDevicesCapacity];
+        _discoveredDevices.clear();
 
         // copy adapter name
         if (hci)
-        {
-                size_t len = strlen(hci) + 1;
-                _hci = new char[len];
-                strncpy(_hci, hci, len);
-        }
+                _hci = hci;
         else
-        {
-                _hci = new char[5];
-                strncpy(_hci, "hci0", 5);
-        }
+                _hci = "hci0";
 
         // open DBus connection
         DBusError dbusError;
@@ -131,17 +90,14 @@ BluezAdapter::BluezAdapter(const char *hci)
 
 BluezAdapter::~BluezAdapter()
 {
-        if (_hci)
-                delete[] _hci;
         clearDiscoveredDevicesList();
-        delete[] _discoveredDevices;
 }
 
 
 bool BluezAdapter::powered()
 {
         char path[MAX_PATH_LENGTH];
-        snprintf(path, MAX_PATH_LENGTH, "/org/bluez/%s", _hci);
+        snprintf(path, MAX_PATH_LENGTH, "/org/bluez/%s", _hci.c_str());
         return readBooleanProperty(path, "org.bluez.Adapter1", "Powered");
 }
 
@@ -149,7 +105,7 @@ bool BluezAdapter::powered()
 bool BluezAdapter::isDiscovering()
 {
         char path[MAX_PATH_LENGTH];
-        snprintf(path, MAX_PATH_LENGTH, "/org/bluez/%s", _hci);
+        snprintf(path, MAX_PATH_LENGTH, "/org/bluez/%s", _hci.c_str());
         return readBooleanProperty(path, "org.bluez.Adapter1", "Discovering");
 }
 
@@ -158,7 +114,7 @@ bool BluezAdapter::startDiscovery()
 {
         // call the adapter's StartDiscovery method
         char path[MAX_PATH_LENGTH];
-        snprintf(path, MAX_PATH_LENGTH, "/org/bluez/%s", _hci);
+        snprintf(path, MAX_PATH_LENGTH, "/org/bluez/%s", _hci.c_str());
         return callMethod(path, "org.bluez.Adapter1", "StartDiscovery");
 }
 
@@ -167,7 +123,7 @@ bool BluezAdapter::stopDiscovery()
 {
         // call the adapter's StopDiscovery method
         char path[MAX_PATH_LENGTH];
-        snprintf(path, MAX_PATH_LENGTH, "/org/bluez/%s", _hci);
+        snprintf(path, MAX_PATH_LENGTH, "/org/bluez/%s", _hci.c_str());
         if (!callMethod(path, "org.bluez.Adapter1", "StopDiscovery"))
                 return false;
 
@@ -179,7 +135,7 @@ bool BluezAdapter::stopDiscovery()
 
 const BluezAdapter::DeviceInfo *BluezAdapter::discoveredDeviceAt(int index) const
 {
-        if ((index >= 0) && (index < _discoveredDevicesCount))
+        if ((index >= 0) && (index < static_cast<int>(_discoveredDevices.size())))
                 return static_cast<const DeviceInfo*>(_discoveredDevices[index]);
         else
                 return nullptr;
@@ -196,9 +152,8 @@ bool BluezAdapter::isDeviceConnected(const char *address)
         }
 
         // read the device's Connect property
-        char path[MAX_PATH_LENGTH];
-        getDevicePath(address, path);
-        return readBooleanProperty(path, "org.bluez.Device1", "Connected", false);
+        std::string path = getDevicePath(address);
+        return readBooleanProperty(path.c_str(), "org.bluez.Device1", "Connected", false);
 }
 
 
@@ -212,9 +167,8 @@ bool BluezAdapter::connectDevice(const char *address, bool verify)
         }
 
         // call the device's Connect method
-        char path[MAX_PATH_LENGTH];
-        getDevicePath(address, path);
-        if (!callMethod(path, "org.bluez.Device1", "Connect"))
+        std::string path = getDevicePath(address);
+        if (!callMethod(path.c_str(), "org.bluez.Device1", "Connect"))
                 return false;
 
         // verify that the Connected property is true
@@ -235,9 +189,8 @@ bool BluezAdapter::disconnectDevice(const char *address, bool verify)
         }
 
         // call the device's Disconnect method
-        char path[MAX_PATH_LENGTH];
-        getDevicePath(address, path);
-        if (!callMethod(path, "org.bluez.Device1", "Disconnect"))
+        std::string path = getDevicePath(address);
+        if (!callMethod(path.c_str(), "org.bluez.Device1", "Disconnect"))
                 return false;
 
         // verify that the Connected property is true
@@ -259,19 +212,17 @@ bool BluezAdapter::removeDevice(const char *address)
                 return false;
         }
 
-        char devicePath[MAX_PATH_LENGTH];
-        getDevicePath(address, devicePath);
-
-        char path[MAX_PATH_LENGTH];
-        snprintf(path, MAX_PATH_LENGTH, "/org/bluez/%s", _hci);
-        DBusMessage *query = dbus_message_new_method_call("org.bluez", path, "org.bluez.Adapter1", "RemoveDevice");
+        std::string path = "/org/bluez/";
+        path.append(_hci);
+        DBusMessage *query = dbus_message_new_method_call("org.bluez", path.c_str(), "org.bluez.Adapter1", "RemoveDevice");
         if (!query)
         {
                 LOG_ERROR("Couldn't allocate memory for the query message.");
                 return false;
         }
 
-        const char *constDevicePath = static_cast<const char *>(devicePath);
+        std::string devicePath = getDevicePath(address);
+        const char *constDevicePath = devicePath.c_str();
         dbus_message_append_args(query, DBUS_TYPE_OBJECT_PATH, &constDevicePath, DBUS_TYPE_INVALID);
 
         DBusError dbusError;
@@ -321,8 +272,7 @@ char *BluezAdapter::findCharacteristicPath(const char *deviceAddress, const char
         }
 
         // get the device's path
-        char devicePath[MAX_PATH_LENGTH];
-        getDevicePath(deviceAddress, devicePath);
+        std::string devicePath = getDevicePath(deviceAddress);
 
         // go through the returned data
         DBusMessageIter objArrayIter;
@@ -333,7 +283,7 @@ char *BluezAdapter::findCharacteristicPath(const char *deviceAddress, const char
                 dbus_message_iter_recurse(&objArrayIter, &objIter);
                 while (true)
                 {
-                        const char *result = findCharacteristicPath_object(&objIter, devicePath, charUUID);
+                        const char *result = findCharacteristicPath_object(&objIter, devicePath.c_str(), charUUID);
                         if (result)
                         {
                                 // copy the result to a new buffer
@@ -516,23 +466,23 @@ bool BluezAdapter::isValidAddress(const char *address) const
 }
 
 
-void BluezAdapter::getDevicePath(const char *address, char *path)
+std::string BluezAdapter::getDevicePath(const char *address)
 {
-        snprintf(path, MAX_PATH_LENGTH, "/org/bluez/%s/dev_", _hci);
+        std::string path = "/org/bluez/";
+        path.append(_hci);
+        path.append("/dev_");
         const char *src = address;
-        char *dst = path + strlen(path);
         while (*src)
         {
                 if (((*src >= '0') && (*src <= '9')) || ((*src >= 'A') && (*src <= 'F')))
-                        *dst = *src;
+                        path += *src;
                 else if ((*src >= 'a') && (*src <= 'f'))
-                        *dst = *src - 32;
+                        path += *src - 32;
                 else
-                        *dst = '_';
+                        path += '_';
                 src++;
-                dst++;
         }
-        *dst = '\0';
+        return path;
 }
 
 
@@ -640,12 +590,9 @@ bool BluezAdapter::readBooleanProperty(const char *path, const char *interface, 
 
 void BluezAdapter::clearDiscoveredDevicesList()
 {
-        for (int i = 0; i < _discoveredDevicesCount; i++)
-        {
-                delete _discoveredDevices[i];
-                _discoveredDevices[i] = nullptr;
-        }
-        _discoveredDevicesCount = 0;
+        for (DeviceInfo *device : _discoveredDevices)
+                delete device;
+        _discoveredDevices.clear();
 }
 
 
@@ -823,20 +770,8 @@ void BluezAdapter::updateDiscoveredDevicesList_device(DBusMessageIter *deviceIte
         // consider adding the device to the list of discovered devices
         if (isValidAddress(device->address()) && canReadConnectedProperty(device->address()))
         {
-                // grow the list if necessary
-                if (_discoveredDevicesCount == _discoveredDevicesCapacity)
-                {
-                        _discoveredDevicesCapacity += DEVICE_LIST_CAPACITY_GROWTH;
-                        DeviceInfo **newList = new DeviceInfo*[_discoveredDevicesCapacity];
-                        for (int i = 0; i < _discoveredDevicesCount; i++)
-                                newList[i] = _discoveredDevices[i];
-                        delete[] _discoveredDevices;
-                        _discoveredDevices = newList;
-                }
-
                 // add the device
-                _discoveredDevices[_discoveredDevicesCount] = device;
-                _discoveredDevicesCount++;
+                _discoveredDevices.push_back(device);
                 LOG_DEBUG("Found registered device: %s", device->address());
         }
         else
@@ -856,11 +791,10 @@ bool BluezAdapter::canReadConnectedProperty(const char *address)
         }
 
         // create the query message
-        char path[MAX_PATH_LENGTH];
-        getDevicePath(address, path);
+        std::string path = getDevicePath(address);
         const char *interface = "org.bluez.Device1";
         const char *propName = "Connected";
-        DBusMessage *query = dbus_message_new_method_call("org.bluez", path, "org.freedesktop.DBus.Properties", "Get");
+        DBusMessage *query = dbus_message_new_method_call("org.bluez", path.c_str(), "org.freedesktop.DBus.Properties", "Get");
         if (!query)
         {
                 LOG_ERROR("Couldn't allocate memory for the query message.");

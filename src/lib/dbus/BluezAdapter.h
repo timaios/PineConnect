@@ -27,6 +27,8 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <vector>
+#include <string>
 #include <dbus/dbus.h>
 
 
@@ -38,15 +40,13 @@ public:
         struct DeviceInfo
         {
         public:
-                DeviceInfo();
-                ~DeviceInfo();
-                const char *address() const { return static_cast<const char *>(_address); }
+                const char *address() const { return _address.c_str(); }
                 void setAddress(const char *value);
-                const char *name() const { return static_cast<const char *>(_name); }
+                const char *name() const { return _name.c_str(); }
                 void setName(const char *value);
         private:
-                char *_address;
-                char *_name;
+                std::string _address;
+                std::string _name;
         };
 
 
@@ -63,7 +63,7 @@ public:
         bool isDiscovering();
         bool startDiscovery();
         bool stopDiscovery();
-        int discoveredDevicesCount() const { return _discoveredDevicesCount; }
+        int discoveredDevicesCount() const { return static_cast<int>(_discoveredDevices.size()); }
         const DeviceInfo *discoveredDeviceAt(int index) const;
 
         bool isDeviceConnected(const char *address);
@@ -78,14 +78,12 @@ public:
 protected:
 
         DBusConnection *_connection;
-        char *_hci;
+        std::string _hci;
         int _timeout;
-        int _discoveredDevicesCount;
-        int _discoveredDevicesCapacity;
-        DeviceInfo **_discoveredDevices;
+        std::vector<DeviceInfo *> _discoveredDevices;
 
         bool isValidAddress(const char *address) const;
-        void getDevicePath(const char *address, char *path);
+        std::string getDevicePath(const char *address);
 
         const char *getStringFromVariant(DBusMessageIter *variantIter);
         bool getBooleanFromVariant(DBusMessageIter *variantIter);
